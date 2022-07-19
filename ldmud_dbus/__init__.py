@@ -268,7 +268,7 @@ class DBusConnection:
                     raise ConnectionError("unknown transport '%s'" % (transport,))
                 error = None
                 break
-            except ex:
+            except Exception as ex:
                 if error is None:
                     error = ex
 
@@ -765,30 +765,45 @@ async def print_error_callback(msg):
         print(msg.header[DBusMessage.HeaderField.ERROR_NAME], *msg.data)
 
 connection = None
+connection_future = None
+
 async def get_connection():
     """
     Return the current connection, create a new one if necessary.
     """
-    global connection
+    global connection, connection_future
     if connection is not None and connection.active():
         return connection
 
-    conn = DBusConnection(address = dbusconfig.get('bus', 'session'))
-    await conn.connect()
+    if connection_future is not None:
+        return await connection_future
 
-    # First message needs to be the Hello call.
-    conn.send_message(print_error_callback, DBusMethodCall('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'Hello', "", []))
+    connection_future = asyncio.Future()
+    try:
+        conn = DBusConnection(address = dbusconfig.get('bus', 'session'))
+        await conn.connect()
 
-    name = dbusconfig.get('name', None)
-    if name:
-        conn.send_message(print_error_callback, DBusMethodCall('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'RequestName', "su", [name, 3]))
+        # First message needs to be the Hello call.
+        conn.send_message(print_error_callback, DBusMethodCall('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'Hello', "", []))
 
-    for keys in sorted(listeners):
-        conn.send_message(print_error_callback, DBusMethodCall('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'AddMatch', "s", [keys]))
+        name = dbusconfig.get('name', None)
+        if name:
+            conn.send_message(print_error_callback, DBusMethodCall('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'RequestName', "su", [name, 3]))
 
-    if not conn.active():
-        raise ConnectionResetError("dbus connection closed unexpectedly")
+        for keys in sorted(listeners):
+            conn.send_message(print_error_callback, DBusMethodCall('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'AddMatch', "s", [keys]))
+
+        if not conn.active():
+            raise ConnectionResetError("dbus connection closed unexpectedly")
+
+    except Exception as ex:
+        connection_future.set_exception(exc)
+        connection_future = None
+        raise
+
     connection = conn
+    connection_future.set_result(conn)
+    connection_future = None
     return conn
 
 def check_privilege(name, *args):
