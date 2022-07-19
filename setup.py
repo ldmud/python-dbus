@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="ldmud-dbus",
-    version="0.0.1",
+    version="0.0.2",
     author="LDMud Team",
     author_email="ldmud-dev@UNItopia.DE",
     description="Python dbus package for LDMud",
